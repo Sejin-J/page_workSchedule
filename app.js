@@ -5,14 +5,20 @@ const CALENDAR_HEADER_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
 const FOCUS_WEEKDAYS = new Set([1, 3, 6]);
 
 const sampleEmployees = [
-  { id: "E001", name: "김서연", role: "팀장", skill: 3 },
-  { id: "E002", name: "이도윤", role: "일반", skill: 3 },
-  { id: "E003", name: "박지후", role: "일반", skill: 2 },
-  { id: "E004", name: "정하은", role: "일반", skill: 2 },
-  { id: "E005", name: "최유진", role: "일반", skill: 1 },
-  { id: "E006", name: "오민재", role: "일반", skill: 3 },
-  { id: "E007", name: "한지민", role: "일반", skill: 2 },
-  { id: "E008", name: "윤태호", role: "일반", skill: 1 }
+  { id: "E001", name: "김서연", role: "팀장", skill: 3, preferences: [], absences: ["2026-03-12"] },
+  { id: "E002", name: "이도윤", role: "일반", skill: 3, preferences: ["A", "B", "C"], absences: ["2026-03-07", "2026-03-18"] },
+  { id: "E003", name: "박지후", role: "일반", skill: 2, preferences: ["B", "A", "C"], absences: ["2026-03-10"] },
+  { id: "E004", name: "정하은", role: "일반", skill: 2, preferences: ["C", "B", "A"], absences: ["2026-03-03", "2026-03-20"] },
+  { id: "E005", name: "최유진", role: "일반", skill: 1, preferences: ["A", "C", "B"], absences: ["2026-03-18"] },
+  { id: "E006", name: "오민재", role: "일반", skill: 3, preferences: ["B", "C", "A"], absences: [] },
+  { id: "E007", name: "한지민", role: "일반", skill: 2, preferences: ["C", "A", "B"], absences: ["2026-03-01", "2026-03-26"] },
+  { id: "E008", name: "윤태호", role: "일반", skill: 1, preferences: ["A", "B", "C"], absences: ["2026-03-15"] }
+];
+
+const sampleFixedAssignments = [
+  { date: "2026-03-04", employeeId: "E001", shift: "A" },
+  { date: "2026-03-10", employeeId: "E003", shift: "B" },
+  { date: "2026-03-18", employeeId: "E005", shift: "C" }
 ];
 
 const state = loadState();
@@ -40,6 +46,7 @@ const elements = {
   scheduleTabs: document.querySelector("#scheduleTabs"),
   monthLabel: document.querySelector("#monthLabel"),
   employeeCountPill: document.querySelector("#employeeCountPill"),
+  preferenceSummary: document.querySelector("#preferenceSummary"),
   calendarView: document.querySelector("#calendarView"),
   combinedMonthlyStats: document.querySelector("#combinedMonthlyStats"),
   combinedMwsStats: document.querySelector("#combinedMwsStats")
@@ -138,6 +145,7 @@ function render() {
 
   renderOverrideList();
   renderTabs();
+  renderPreferenceSummary();
   renderCalendar(schedule);
   renderStats(schedule);
   saveState();
@@ -252,6 +260,24 @@ function renderCalendar(schedule) {
   });
 }
 
+function renderPreferenceSummary() {
+  if (state.selectedView === "summary") {
+    elements.preferenceSummary.innerHTML = "";
+    return;
+  }
+
+  const employee = findEmployee(state.selectedView);
+  const preferences = employee?.preferences ?? [];
+  if (!preferences.length) {
+    elements.preferenceSummary.innerHTML = `<span class="preference-chip">팀장은 선호도 입력 없음</span>`;
+    return;
+  }
+
+  elements.preferenceSummary.innerHTML = preferences.map((shift, index) => `
+    <span class="preference-chip shift-${shift}">${index + 1}순위 ${shift}</span>
+  `).join("");
+}
+
 function buildSummaryItems(schedule, date) {
   return sampleEmployees.map((employee) => {
     const entry = schedule.find((item) => item.date === date && item.employeeId === employee.id);
@@ -259,7 +285,8 @@ function buildSummaryItems(schedule, date) {
       date,
       employeeId: employee.id,
       label: `${formatShift(entry?.shift ?? "OFF")}-${formatEmployeeName(employee)}`,
-      shift: entry?.shift ?? "OFF"
+      shift: entry?.shift ?? "OFF",
+      fixed: Boolean(entry?.fixed)
     };
   });
 }
@@ -271,7 +298,8 @@ function buildEmployeeItems(schedule, date, employeeId) {
     date,
     employeeId,
     label: entry.shift === "OFF" ? "휴" : `${entry.shift} 근무`,
-    shift: entry.shift
+    shift: entry.shift,
+    fixed: Boolean(entry.fixed)
   }];
 }
 
@@ -280,9 +308,11 @@ function renderStats(schedule) {
   const mwsRequired = getRequiredTotals(true);
   const monthlyEmployee = getEmployeeTotals(schedule, false);
   const mwsEmployee = getEmployeeTotals(schedule, true);
+  const monthlyAbsence = getEmployeeAbsenceTotals(false);
+  const mwsAbsence = getEmployeeAbsenceTotals(true);
 
-  elements.combinedMonthlyStats.innerHTML = buildCombinedStatsTable("월 전체", monthlyRequired, monthlyEmployee);
-  elements.combinedMwsStats.innerHTML = buildCombinedStatsTable("월수토 전체", mwsRequired, mwsEmployee);
+  elements.combinedMonthlyStats.innerHTML = buildCombinedStatsTable("월 전체", monthlyRequired, monthlyEmployee, monthlyAbsence);
+  elements.combinedMwsStats.innerHTML = buildCombinedStatsTable("월수토 전체", mwsRequired, mwsEmployee, mwsAbsence);
 }
 
 function getRequiredTotals(onlyFocusWeekdays) {
@@ -317,8 +347,20 @@ function getEmployeeTotals(schedule, onlyFocusWeekdays) {
   });
 }
 
-function buildCombinedStatsTable(totalLabel, requiredTotals, employeeRows) {
+function getEmployeeAbsenceTotals(onlyFocusWeekdays) {
+  return sampleEmployees.map((employee) => {
+    const count = (employee.absences ?? []).filter((date) => {
+      if (!onlyFocusWeekdays) return true;
+      return FOCUS_WEEKDAYS.has(new Date(date).getDay());
+    }).length;
+    return { name: formatEmployeeName(employee), count };
+  });
+}
+
+function buildCombinedStatsTable(totalLabel, requiredTotals, employeeRows, absenceRows) {
   const header = [totalLabel, ...employeeRows.map((row) => row.name)];
+  const totalRequired = SHIFTS.reduce((sum, shift) => sum + requiredTotals[shift], 0);
+  const totalAbsence = absenceRows.reduce((sum, row) => sum + row.count, 0);
   return `
     <table>
       <thead>
@@ -332,9 +374,23 @@ function buildCombinedStatsTable(totalLabel, requiredTotals, employeeRows) {
           <tr>
             <td>${shift}</td>
             <td>${requiredTotals[shift]}</td>
-            ${employeeRows.map((row) => `<td>${row[shift]}</td>`).join("")}
+            ${employeeRows.map((row) => {
+              const employee = sampleEmployees.find((item) => formatEmployeeName(item) === row.name);
+              const preferenceClass = employee ? getPreferenceCellClass(employee, shift) : "";
+              return `<td class="${preferenceClass}">${row[shift]}</td>`;
+            }).join("")}
           </tr>
         `).join("")}
+        <tr>
+          <td>합계</td>
+          <td>${totalRequired}</td>
+          ${employeeRows.map((row) => `<td>${SHIFTS.reduce((sum, shift) => sum + row[shift], 0)}</td>`).join("")}
+        </tr>
+        <tr>
+          <td>부재</td>
+          <td class="absence-cell">${totalAbsence}</td>
+          ${absenceRows.map((row) => `<td class="absence-cell">${row.count}</td>`).join("")}
+        </tr>
       </tbody>
     </table>
   `;
@@ -343,7 +399,7 @@ function buildCombinedStatsTable(totalLabel, requiredTotals, employeeRows) {
 function renderCalendarItem(item) {
   const isEditing = state.editing?.date === item.date && state.editing?.employeeId === item.employeeId;
   return `
-    <div class="calendar-item shift-${item.shift} ${isEditing ? "is-editing" : ""}" data-entry-date="${item.date}" data-employee-id="${item.employeeId}">
+    <div class="calendar-item shift-${item.shift} ${item.fixed ? "is-fixed" : ""} ${isEditing ? "is-editing" : ""}" data-entry-date="${item.date}" data-employee-id="${item.employeeId}">
       <div>${item.label}</div>
       ${isEditing ? `
         <div class="edit-popover">
@@ -397,22 +453,28 @@ function buildDraftSchedule() {
     const date = isoDate(state.year, state.month, day);
     const required = state.overrides.find((item) => item.date === date) ?? state.requirements;
     const assignedIds = new Set();
+    const fixedAssignments = getFixedAssignmentsForDate(date);
+
+    fixedAssignments.forEach((assignment) => {
+      assignedIds.add(assignment.employeeId);
+      schedule.push({ ...assignment, fixed: true });
+    });
 
     SHIFTS.forEach((shift) => {
-      let remaining = required[shift];
+      let remaining = Math.max(0, required[shift] - fixedAssignments.filter((item) => item.shift === shift).length);
       for (let index = 0; index < sampleEmployees.length && remaining > 0; index += 1) {
         const employee = sampleEmployees[(index + day + shift.charCodeAt(0)) % sampleEmployees.length];
         if (assignedIds.has(employee.id)) continue;
         if (employee.role === "팀장" && shift !== "A") continue;
         assignedIds.add(employee.id);
-        schedule.push({ date, employeeId: employee.id, shift });
+        schedule.push({ date, employeeId: employee.id, shift, fixed: false });
         remaining -= 1;
       }
     });
 
     sampleEmployees.forEach((employee) => {
       if (!assignedIds.has(employee.id)) {
-        schedule.push({ date, employeeId: employee.id, shift: "OFF" });
+        schedule.push({ date, employeeId: employee.id, shift: "OFF", fixed: false });
       }
     });
   }
@@ -431,18 +493,23 @@ function updateShift(date, employeeId, shift) {
 function downloadCsvTemplate(type) {
   const templates = {
     employee: {
-      filename: "employee-format.csv",
+      filename: "제원데이터-양식.csv",
       rows: [
-        ["name", "employee_id", "role", "skill_level", "preference_1", "preference_2", "preference_3", "available_start", "available_end", "absence_dates", "fixed_assignments"],
-        ["홍길동", "E001", "팀장", "3", "", "", "", "2026-03-01", "2026-03-31", "2026-03-11|2026-03-18", "2026-03-05:A"]
+        ["작성안내", "선호도는 한 칸에 A/B/C 순서를 붙여 적습니다. 예: ACB 또는 BCA", "", "", "", "", "", "", "", "", ""],
+        ["작성안내", "부재일정은 날짜를 &(앤드)로 구분합니다. 예: 2026-03-11&2026-03-18", "", "", "", "", "", "", "", "", ""],
+        ["작성안내", "사전지정근무는 날짜와 근무를 2026-03-05(A)&2026-03-12(C) 형태로 적습니다.", "", "", "", "", "", "", "", "", ""],
+        ["이름", "사번", "직책(팀장/일반)", "성숙도(1/2/3)", "선호도(예:ACB)", "근무가능시작(YYYY-MM-DD)", "근무가능종료(YYYY-MM-DD)", "부재일정(YYYY-MM-DD&YYYY-MM-DD)", "사전지정근무(YYYY-MM-DD(A)&YYYY-MM-DD(B))", "비고", ""],
+        ["홍길동", "E001", "팀장", "3", "", "2026-03-01", "2026-03-31", "2026-03-11&2026-03-18", "2026-03-05(A)", "", ""],
+        ["김영희", "E002", "일반", "2", "BCA", "2026-03-01", "2026-03-31", "2026-03-07&2026-03-21", "2026-03-09(B)&2026-03-25(A)", "", ""]
       ]
     },
     carryover: {
-      filename: "carryover-format.csv",
+      filename: "전월근무데이터-양식.csv",
       rows: [
-        ["date", "employee_id", "employee_name", "shift"],
-        ["2026-02-24", "E001", "홍길동", "A"],
-        ["2026-02-24", "E002", "김영희", "B"]
+        ["작성안내", "첫 행 첫 칸에는 기준 연월을 적습니다. 예: 2026년 2월", "", "", "", ""],
+        ["2026년 2월", "1일", "2일", "3일", "4일", "5일"],
+        ["홍길동", "A", "휴", "A", "B", "휴"],
+        ["김영희", "B", "C", "휴", "A", "A"]
       ]
     }
   };
@@ -459,17 +526,23 @@ function downloadCsvTemplate(type) {
 }
 
 function downloadCurrentSchedule() {
-  const header = ["date", "employee_id", "employee_name", "shift"];
-  const rows = state.schedule.map((entry) => {
-    const employee = findEmployee(entry.employeeId);
-    return [entry.date, entry.employeeId, formatEmployeeName(employee), formatShift(entry.shift)];
+  const days = getDaysInMonth(state.year, state.month);
+  const header = [`${state.year}년 ${state.month}월`, ...Array.from({ length: days }, (_, index) => `${index + 1}일`)];
+  const rows = sampleEmployees.map((employee) => {
+    const shifts = Array.from({ length: days }, (_, index) => {
+      const day = index + 1;
+      const date = isoDate(state.year, state.month, day);
+      const entry = state.schedule.find((item) => item.date === date && item.employeeId === employee.id);
+      return formatShift(entry?.shift ?? "OFF");
+    });
+    return [formatEmployeeName(employee), ...shifts];
   });
   const csv = "\uFEFF" + [header, ...rows].map((row) => row.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `work-schedule-result-${state.year}-${String(state.month).padStart(2, "0")}.csv`;
+  link.download = `근무표-결과-${state.year}-${String(state.month).padStart(2, "0")}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -528,6 +601,18 @@ function formatEmployeeName(employee) {
   if (employee.role === "팀장") tags.push("T");
   if (employee.skill === 1) tags.push("N");
   return tags.length ? `${employee.name}${tags.join("")}` : employee.name;
+}
+
+function getPreferenceCellClass(employee, shift) {
+  const rank = employee.preferences.indexOf(shift);
+  if (rank === -1) return "";
+  return `preference-cell shift-${shift} rank-${rank + 1}`;
+}
+
+function getFixedAssignmentsForDate(date) {
+  return sampleFixedAssignments
+    .filter((assignment) => assignment.date === date)
+    .map((assignment) => ({ ...assignment }));
 }
 
 function isoDate(year, month, day) {

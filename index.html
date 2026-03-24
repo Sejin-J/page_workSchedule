@@ -14,7 +14,7 @@
   <div class="page-shell">
     <header class="hero">
       <div>
-        <p class="eyebrow">GitHub Pages Static App Draft</p>
+        <p class="eyebrow">월간 근무표 생성기 V00, Licensed to sejincredible@gmail.com</p>
         <h1>월간 근무표 생성기</h1>
         <p class="hero-copy">좌측에는 입력과 검증, 우측에는 달력형 근무표와 통계 요약을 배치한 화면 초안입니다.</p>
       </div>
@@ -30,7 +30,6 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>기준 설정</h2>
-            <span class="badge">25%</span>
           </div>
 
           <div class="field-grid field-grid-2">
@@ -68,7 +67,6 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>특정일 최소 필요 인원</h2>
-            <span class="badge">Override</span>
           </div>
           <button id="addOverrideButton" class="button button-secondary button-small">특정일 추가</button>
           <div id="overrideList" class="stack-list"></div>
@@ -77,7 +75,6 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>데이터 입력</h2>
-            <span class="badge">CSV</span>
           </div>
 
           <div class="upload-card">
@@ -111,7 +108,6 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>통계 요약</h2>
-            <span class="badge">Summary</span>
           </div>
 
           <div class="stats-layout">
@@ -129,7 +125,6 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>근무표</h2>
-            <span class="badge">75%</span>
           </div>
 
           <div class="schedule-toolbar">
@@ -139,6 +134,8 @@
               <span id="employeeCountPill" class="pill">직원 0명</span>
             </div>
           </div>
+
+          <div id="preferenceSummary" class="preference-summary"></div>
 
           <div id="calendarView" class="calendar-grid"></div>
         </section>
