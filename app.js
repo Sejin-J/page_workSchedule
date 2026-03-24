@@ -1,6 +1,7 @@
 const STORAGE_KEY = "workScheduleDraftState";
 const SHIFTS = ["A", "B", "C"];
 const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+const CALENDAR_HEADER_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
 const FOCUS_WEEKDAYS = new Set([1, 3, 6]);
 
 const sampleEmployees = [
@@ -25,6 +26,8 @@ const elements = {
   overrideList: document.querySelector("#overrideList"),
   employeeFileInput: document.querySelector("#employeeFileInput"),
   carryoverFileInput: document.querySelector("#carryoverFileInput"),
+  downloadEmployeeFormatButton: document.querySelector("#downloadEmployeeFormatButton"),
+  downloadCarryoverFormatButton: document.querySelector("#downloadCarryoverFormatButton"),
   employeeFileStatus: document.querySelector("#employeeFileStatus"),
   carryoverFileStatus: document.querySelector("#carryoverFileStatus"),
   validateButton: document.querySelector("#validateButton"),
@@ -35,10 +38,8 @@ const elements = {
   monthLabel: document.querySelector("#monthLabel"),
   employeeCountPill: document.querySelector("#employeeCountPill"),
   calendarView: document.querySelector("#calendarView"),
-  requiredMonthlyStats: document.querySelector("#requiredMonthlyStats"),
-  employeeMonthlyStats: document.querySelector("#employeeMonthlyStats"),
-  requiredMwsStats: document.querySelector("#requiredMwsStats"),
-  employeeMwsStats: document.querySelector("#employeeMwsStats")
+  combinedMonthlyStats: document.querySelector("#combinedMonthlyStats"),
+  combinedMwsStats: document.querySelector("#combinedMwsStats")
 };
 
 bootstrap();
@@ -68,6 +69,8 @@ function bindInputs() {
 
   attachFileStatus(elements.employeeFileInput, "employee");
   attachFileStatus(elements.carryoverFileInput, "carryover");
+  elements.downloadEmployeeFormatButton.addEventListener("click", () => downloadCsvTemplate("employee"));
+  elements.downloadCarryoverFormatButton.addEventListener("click", () => downloadCsvTemplate("carryover"));
 
   elements.validateButton.addEventListener("click", () => {
     state.validation = runValidation();
@@ -112,8 +115,10 @@ function attachFileStatus(input, key) {
 }
 
 function render() {
-  const schedule = buildDraftSchedule();
-  state.schedule = schedule;
+  if (!state.schedule.length) {
+    state.schedule = buildDraftSchedule();
+  }
+  const schedule = state.schedule;
   elements.yearInput.value = state.year;
   elements.monthInput.value = state.month;
   elements.requiredAInput.value = state.requirements.A;
@@ -135,8 +140,12 @@ function render() {
 
 function renderOverrideList() {
   if (!state.overrides.length) {
-    elements.overrideList.innerHTML = `<div class="status-text">등록된 특정일 최소 필요 인원이 없습니다.</div>`;
-    return;
+    state.overrides.push({
+      date: isoDate(state.year, state.month, 1),
+      A: state.requirements.A,
+      B: state.requirements.B,
+      C: state.requirements.C
+    });
   }
 
   elements.overrideList.innerHTML = state.overrides.map((override, index) => `
@@ -171,7 +180,7 @@ function renderOverrideList() {
 function renderTabs() {
   const tabs = [
     { id: "summary", label: "종합" },
-    ...sampleEmployees.map((employee) => ({ id: employee.id, label: employee.name }))
+    ...sampleEmployees.map((employee) => ({ id: employee.id, label: formatEmployeeName(employee) }))
   ];
 
   elements.scheduleTabs.innerHTML = tabs.map((tab) => `
@@ -190,8 +199,8 @@ function renderTabs() {
 
 function renderCalendar(schedule) {
   const days = getDaysInMonth(state.year, state.month);
-  const firstWeekday = new Date(state.year, state.month - 1, 1).getDay();
-  const cells = [];
+  const firstWeekday = toMondayFirstIndex(new Date(state.year, state.month - 1, 1).getDay());
+  const cells = CALENDAR_HEADER_LABELS.map((label) => `<div class="calendar-weekday">${label}</div>`);
 
   for (let index = 0; index < firstWeekday; index += 1) {
     cells.push(`<div class="calendar-cell is-empty"></div>`);
@@ -199,7 +208,6 @@ function renderCalendar(schedule) {
 
   for (let day = 1; day <= days; day += 1) {
     const date = isoDate(state.year, state.month, day);
-    const weekday = new Date(state.year, state.month - 1, day).getDay();
     const items = state.selectedView === "summary"
       ? buildSummaryItems(schedule, date)
       : buildEmployeeItems(schedule, date, state.selectedView);
@@ -208,28 +216,54 @@ function renderCalendar(schedule) {
       <article class="calendar-cell">
         <div class="calendar-date">
           <strong>${day}일</strong>
-          <span>${WEEKDAY_LABELS[weekday]}</span>
         </div>
         <div class="calendar-list">
-          ${items.length ? items.map((item) => `<div class="calendar-item ${item === "휴무" ? "off" : ""}">${item}</div>`).join("") : `<div class="calendar-item off">미배정</div>`}
+          ${items.length ? items.map((item) => renderCalendarItem(item)).join("") : `<div class="calendar-item shift-OFF">미배정</div>`}
         </div>
       </article>
     `);
   }
 
   elements.calendarView.innerHTML = cells.join("");
+
+  elements.calendarView.querySelectorAll("[data-entry-date]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const { entryDate, employeeId } = button.dataset;
+      const isSame = state.editing?.date === entryDate && state.editing?.employeeId === employeeId;
+      state.editing = isSame ? null : { date: entryDate, employeeId };
+      saveAndRender();
+    });
+  });
+
+  elements.calendarView.querySelectorAll("[data-edit-shift]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      updateShift(button.dataset.entryDate, button.dataset.employeeId, button.dataset.editShift);
+    });
+  });
 }
 
 function buildSummaryItems(schedule, date) {
-  return schedule
-    .filter((entry) => entry.date === date && entry.shift !== "OFF")
-    .map((entry) => `${entry.shift}-${findEmployee(entry.employeeId).name}`);
+  return sampleEmployees.map((employee) => {
+    const entry = schedule.find((item) => item.date === date && item.employeeId === employee.id);
+    return {
+      date,
+      employeeId: employee.id,
+      label: `${formatShift(entry?.shift ?? "OFF")}-${formatEmployeeName(employee)}`,
+      shift: entry?.shift ?? "OFF"
+    };
+  });
 }
 
 function buildEmployeeItems(schedule, date, employeeId) {
   const entry = schedule.find((item) => item.date === date && item.employeeId === employeeId);
   if (!entry) return [];
-  return [entry.shift === "OFF" ? "휴무" : `${entry.shift} 근무`];
+  return [{
+    date,
+    employeeId,
+    label: entry.shift === "OFF" ? "휴" : `${entry.shift} 근무`,
+    shift: entry.shift
+  }];
 }
 
 function renderStats(schedule) {
@@ -238,10 +272,8 @@ function renderStats(schedule) {
   const monthlyEmployee = getEmployeeTotals(schedule, false);
   const mwsEmployee = getEmployeeTotals(schedule, true);
 
-  elements.requiredMonthlyStats.innerHTML = buildSingleRowTable("구분", monthlyRequired);
-  elements.requiredMwsStats.innerHTML = buildSingleRowTable("구분", mwsRequired);
-  elements.employeeMonthlyStats.innerHTML = buildEmployeeTable(monthlyEmployee);
-  elements.employeeMwsStats.innerHTML = buildEmployeeTable(mwsEmployee);
+  elements.combinedMonthlyStats.innerHTML = buildCombinedStatsTable("월 전체", monthlyRequired, monthlyEmployee);
+  elements.combinedMwsStats.innerHTML = buildCombinedStatsTable("월수토 전체", mwsRequired, mwsEmployee);
 }
 
 function getRequiredTotals(onlyFocusWeekdays) {
@@ -272,25 +304,48 @@ function getEmployeeTotals(schedule, onlyFocusWeekdays) {
         if (onlyFocusWeekdays && !FOCUS_WEEKDAYS.has(day)) return;
         totals[entry.shift] += 1;
       });
-    return { name: employee.name, ...totals };
+    return { name: formatEmployeeName(employee), ...totals };
   });
 }
 
-function buildSingleRowTable(label, totals) {
+function buildCombinedStatsTable(totalLabel, requiredTotals, employeeRows) {
+  const header = [totalLabel, ...employeeRows.map((row) => row.name)];
   return `
     <table>
-      <thead><tr><th>${label}</th><th>A</th><th>B</th><th>C</th></tr></thead>
-      <tbody><tr><td>투입 수</td><td>${totals.A}</td><td>${totals.B}</td><td>${totals.C}</td></tr></tbody>
+      <thead>
+        <tr>
+          <th>근무</th>
+          ${header.map((label) => `<th>${label}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${SHIFTS.map((shift) => `
+          <tr>
+            <td>${shift}</td>
+            <td>${requiredTotals[shift]}</td>
+            ${employeeRows.map((row) => `<td>${row[shift]}</td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
     </table>
   `;
 }
 
-function buildEmployeeTable(rows) {
+function renderCalendarItem(item) {
+  const isEditing = state.editing?.date === item.date && state.editing?.employeeId === item.employeeId;
   return `
-    <table>
-      <thead><tr><th>직원</th><th>A</th><th>B</th><th>C</th></tr></thead>
-      <tbody>${rows.map((row) => `<tr><td>${row.name}</td><td>${row.A}</td><td>${row.B}</td><td>${row.C}</td></tr>`).join("")}</tbody>
-    </table>
+    <div class="calendar-item shift-${item.shift} ${isEditing ? "is-editing" : ""}" data-entry-date="${item.date}" data-employee-id="${item.employeeId}">
+      <div>${item.label}</div>
+      ${isEditing ? `
+        <div class="edit-popover">
+          ${["A", "B", "C", "OFF"].map((shift) => `
+            <button class="edit-choice choice-${shift}" data-entry-date="${item.date}" data-employee-id="${item.employeeId}" data-edit-shift="${shift}">
+              ${formatShift(shift)}
+            </button>
+          `).join("")}
+        </div>
+      ` : ""}
+    </div>
   `;
 }
 
@@ -356,6 +411,44 @@ function buildDraftSchedule() {
   return schedule;
 }
 
+function updateShift(date, employeeId, shift) {
+  const target = state.schedule.find((entry) => entry.date === date && entry.employeeId === employeeId);
+  if (!target) return;
+  target.shift = shift;
+  state.editing = null;
+  saveAndRender();
+}
+
+function downloadCsvTemplate(type) {
+  const templates = {
+    employee: {
+      filename: "employee-format.csv",
+      rows: [
+        ["name", "employee_id", "role", "skill_level", "preference_1", "preference_2", "preference_3", "available_start", "available_end", "absence_dates", "fixed_assignments"],
+        ["홍길동", "E001", "팀장", "3", "", "", "", "2026-03-01", "2026-03-31", "2026-03-11|2026-03-18", "2026-03-05:A"]
+      ]
+    },
+    carryover: {
+      filename: "carryover-format.csv",
+      rows: [
+        ["date", "employee_id", "employee_name", "shift"],
+        ["2026-02-24", "E001", "홍길동", "A"],
+        ["2026-02-24", "E002", "김영희", "B"]
+      ]
+    }
+  };
+
+  const template = templates[type];
+  const csv = "\uFEFF" + template.rows.map((row) => row.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = template.filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -387,6 +480,7 @@ function buildDefaultState() {
     uploads: { employee: null, carryover: null },
     validation: { errors: [], warnings: [] },
     selectedView: "summary",
+    editing: null,
     schedule: []
   };
 }
@@ -400,6 +494,17 @@ function describeUpload(file) {
   return `${file.name} (${Math.ceil(file.size / 1024)} KB)`;
 }
 
+function formatShift(shift) {
+  return shift === "OFF" ? "휴" : shift;
+}
+
+function formatEmployeeName(employee) {
+  const tags = [];
+  if (employee.role === "팀장") tags.push("T");
+  if (employee.skill === 1) tags.push("N");
+  return tags.length ? `${employee.name}${tags.join("")}` : employee.name;
+}
+
 function isoDate(year, month, day) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
@@ -410,4 +515,8 @@ function getDaysInMonth(year, month) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+}
+
+function toMondayFirstIndex(dayIndex) {
+  return dayIndex === 0 ? 6 : dayIndex - 1;
 }

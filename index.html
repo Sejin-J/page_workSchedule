@@ -75,23 +75,29 @@
 
         <section class="panel">
           <div class="panel-heading">
-            <h2>제원 데이터 입력</h2>
+            <h2>데이터 입력</h2>
             <span class="badge">CSV</span>
           </div>
 
-          <label class="upload-card">
+          <div class="upload-card">
             <span>제원 데이터 업로드</span>
             <small>직원 정보, 직책, 성숙도, 선호도, 근무 가능 기간, 부재 일정, 사전 지정 근무 포함</small>
             <input id="employeeFileInput" type="file" accept=".csv">
-            <strong id="employeeFileStatus">아직 업로드하지 않음</strong>
-          </label>
+            <div class="upload-actions">
+              <button id="downloadEmployeeFormatButton" class="button button-ghost button-small">양식 다운로드</button>
+              <strong id="employeeFileStatus">아직 업로드하지 않음</strong>
+            </div>
+          </div>
 
-          <label class="upload-card">
+          <div class="upload-card">
             <span>전월 근무 데이터 업로드</span>
             <small>전월 출력 파일이자 이번 달 근무표 생성의 기준 데이터</small>
             <input id="carryoverFileInput" type="file" accept=".csv">
-            <strong id="carryoverFileStatus">아직 업로드하지 않음</strong>
-          </label>
+            <div class="upload-actions">
+              <button id="downloadCarryoverFormatButton" class="button button-ghost button-small">양식 다운로드</button>
+              <strong id="carryoverFileStatus">아직 업로드하지 않음</strong>
+            </div>
+          </div>
 
           <div class="action-stack">
             <button id="validateButton" class="button button-secondary">데이터 업로드 및 검증</button>
@@ -126,20 +132,12 @@
 
           <div class="stats-layout">
             <article class="result-card">
-              <h3>월 전체 필요 인원</h3>
-              <div id="requiredMonthlyStats" class="table-wrap"></div>
+              <h3>월 전체 인원 / 인원별 투입 수</h3>
+              <div id="combinedMonthlyStats" class="table-wrap"></div>
             </article>
             <article class="result-card">
-              <h3>인원별 월 전체 투입 수</h3>
-              <div id="employeeMonthlyStats" class="table-wrap"></div>
-            </article>
-            <article class="result-card">
-              <h3>월·수·토 필요 인원</h3>
-              <div id="requiredMwsStats" class="table-wrap"></div>
-            </article>
-            <article class="result-card">
-              <h3>인원별 월·수·토 투입 수</h3>
-              <div id="employeeMwsStats" class="table-wrap"></div>
+              <h3>월·수·토 인원 / 인원별 투입 수</h3>
+              <div id="combinedMwsStats" class="table-wrap"></div>
             </article>
           </div>
         </section>

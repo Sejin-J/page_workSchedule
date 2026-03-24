@@ -144,6 +144,14 @@ button, input { font: inherit; }
   font-size: 0.95rem;
 }
 
+.upload-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .stack-list {
   display: grid;
   gap: 12px;
@@ -204,6 +212,13 @@ button, input { font: inherit; }
   gap: 12px;
 }
 
+.calendar-weekday {
+  padding: 10px 8px;
+  text-align: center;
+  font-weight: 800;
+  color: var(--primary-strong);
+}
+
 .calendar-cell {
   min-height: 150px;
   padding: 14px;
@@ -218,7 +233,7 @@ button, input { font: inherit; }
 
 .calendar-date {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: baseline;
   margin-bottom: 10px;
 }
@@ -238,15 +253,39 @@ button, input { font: inherit; }
   background: rgba(180, 79, 47, 0.08);
   font-size: 0.88rem;
   line-height: 1.35;
+  cursor: pointer;
+  border: 1px solid transparent;
 }
 
-.calendar-item.off {
-  background: rgba(46, 37, 25, 0.08);
+.calendar-item.shift-A { background: rgba(34, 197, 94, 0.18); color: #166534; }
+.calendar-item.shift-B { background: rgba(250, 204, 21, 0.24); color: #854d0e; }
+.calendar-item.shift-C { background: rgba(248, 113, 113, 0.22); color: #991b1b; }
+.calendar-item.shift-OFF { background: rgba(148, 163, 184, 0.24); color: #334155; }
+.calendar-item.is-editing { border-color: var(--line-strong); }
+
+.edit-popover {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
+
+.edit-choice {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.edit-choice.choice-A { background: rgba(34, 197, 94, 0.18); color: #166534; }
+.edit-choice.choice-B { background: rgba(250, 204, 21, 0.24); color: #854d0e; }
+.edit-choice.choice-C { background: rgba(248, 113, 113, 0.22); color: #991b1b; }
+.edit-choice.choice-OFF { background: rgba(148, 163, 184, 0.24); color: #334155; }
 
 .stats-layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
@@ -306,11 +345,16 @@ thead th {
     align-items: flex-start;
   }
 
-  .field-grid-2, .mini-grid, .override-item, .calendar-grid {
+  .field-grid-2, .mini-grid, .override-item {
     grid-template-columns: 1fr;
   }
 
   .button {
     width: 100%;
+  }
+
+  .upload-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
