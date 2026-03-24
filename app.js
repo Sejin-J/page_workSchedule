@@ -48,8 +48,7 @@ const elements = {
   employeeCountPill: document.querySelector("#employeeCountPill"),
   preferenceSummary: document.querySelector("#preferenceSummary"),
   calendarView: document.querySelector("#calendarView"),
-  combinedMonthlyStats: document.querySelector("#combinedMonthlyStats"),
-  combinedMwsStats: document.querySelector("#combinedMwsStats")
+  combinedStatsTable: document.querySelector("#combinedStatsTable")
 };
 
 bootstrap();
@@ -286,7 +285,8 @@ function buildSummaryItems(schedule, date) {
       employeeId: employee.id,
       label: `${formatShift(entry?.shift ?? "OFF")}-${formatEmployeeName(employee)}`,
       shift: entry?.shift ?? "OFF",
-      fixed: Boolean(entry?.fixed)
+      fixed: Boolean(entry?.fixed),
+      absent: isEmployeeAbsentOnDate(employee.id, date)
     };
   });
 }
@@ -299,7 +299,8 @@ function buildEmployeeItems(schedule, date, employeeId) {
     employeeId,
     label: entry.shift === "OFF" ? "휴" : `${entry.shift} 근무`,
     shift: entry.shift,
-    fixed: Boolean(entry.fixed)
+    fixed: Boolean(entry.fixed),
+    absent: isEmployeeAbsentOnDate(employeeId, date)
   }];
 }
 
@@ -311,8 +312,10 @@ function renderStats(schedule) {
   const monthlyAbsence = getEmployeeAbsenceTotals(false);
   const mwsAbsence = getEmployeeAbsenceTotals(true);
 
-  elements.combinedMonthlyStats.innerHTML = buildCombinedStatsTable("월 전체", monthlyRequired, monthlyEmployee, monthlyAbsence);
-  elements.combinedMwsStats.innerHTML = buildCombinedStatsTable("월수토 전체", mwsRequired, mwsEmployee, mwsAbsence);
+  elements.combinedStatsTable.innerHTML = buildCombinedStatsTable([
+    { label: "전체", requiredTotals: monthlyRequired, employeeRows: monthlyEmployee, absenceRows: monthlyAbsence },
+    { label: "월수토", requiredTotals: mwsRequired, employeeRows: mwsEmployee, absenceRows: mwsAbsence }
+  ]);
 }
 
 function getRequiredTotals(onlyFocusWeekdays) {
@@ -357,40 +360,42 @@ function getEmployeeAbsenceTotals(onlyFocusWeekdays) {
   });
 }
 
-function buildCombinedStatsTable(totalLabel, requiredTotals, employeeRows, absenceRows) {
-  const header = [totalLabel, ...employeeRows.map((row) => row.name)];
-  const totalRequired = SHIFTS.reduce((sum, shift) => sum + requiredTotals[shift], 0);
-  const totalAbsence = absenceRows.reduce((sum, row) => sum + row.count, 0);
+function buildCombinedStatsTable(sections) {
+  const header = ["구분", "근무", "전체", ...sections[0].employeeRows.map((row) => row.name)];
   return `
-    <table>
+    <table class="stats-table">
       <thead>
         <tr>
-          <th>근무</th>
-          ${header.map((label) => `<th>${label}</th>`).join("")}
+          ${header.map((label, index) => `<th class="${index === 1 ? "divider-right" : ""}">${label}</th>`).join("")}
         </tr>
       </thead>
       <tbody>
-        ${SHIFTS.map((shift) => `
-          <tr>
-            <td>${shift}</td>
-            <td>${requiredTotals[shift]}</td>
-            ${employeeRows.map((row) => {
-              const employee = sampleEmployees.find((item) => formatEmployeeName(item) === row.name);
-              const preferenceClass = employee ? getPreferenceCellClass(employee, shift) : "";
-              return `<td class="${preferenceClass}">${row[shift]}</td>`;
-            }).join("")}
-          </tr>
-        `).join("")}
-        <tr>
-          <td>합계</td>
-          <td>${totalRequired}</td>
-          ${employeeRows.map((row) => `<td>${SHIFTS.reduce((sum, shift) => sum + row[shift], 0)}</td>`).join("")}
-        </tr>
-        <tr>
-          <td>부재</td>
-          <td class="absence-cell">${totalAbsence}</td>
-          ${absenceRows.map((row) => `<td class="absence-cell">${row.count}</td>`).join("")}
-        </tr>
+        ${sections.map((section) => {
+          const totalRequired = SHIFTS.reduce((sum, shift) => sum + section.requiredTotals[shift], 0);
+          const totalAbsence = section.absenceRows.reduce((sum, row) => sum + row.count, 0);
+          const shiftRows = SHIFTS.map((shift, index) => `
+            <tr class="stats-row ${index === 0 ? "section-start" : ""}">
+              ${index === 0 ? `<td rowspan="5" class="section-label">${section.label}</td>` : ""}
+              <td class="metric-label divider-right">${shift}</td>
+              <td class="total-cell">${section.requiredTotals[shift]}</td>
+              ${section.employeeRows.map((row) => `<td>${row[shift]}</td>`).join("")}
+            </tr>
+          `).join("");
+
+          return `
+            ${shiftRows}
+            <tr class="summary-row">
+              <td class="metric-label divider-right">합계</td>
+              <td class="total-cell">${totalRequired}</td>
+              ${section.employeeRows.map((row) => `<td class="total-cell">${SHIFTS.reduce((sum, shift) => sum + row[shift], 0)}</td>`).join("")}
+            </tr>
+            <tr class="absence-row">
+              <td class="metric-label divider-right">부재</td>
+              <td class="absence-cell">${totalAbsence}</td>
+              ${section.absenceRows.map((row) => `<td class="absence-cell">${row.count}</td>`).join("")}
+            </tr>
+          `;
+        }).join("")}
       </tbody>
     </table>
   `;
@@ -399,7 +404,7 @@ function buildCombinedStatsTable(totalLabel, requiredTotals, employeeRows, absen
 function renderCalendarItem(item) {
   const isEditing = state.editing?.date === item.date && state.editing?.employeeId === item.employeeId;
   return `
-    <div class="calendar-item shift-${item.shift} ${item.fixed ? "is-fixed" : ""} ${isEditing ? "is-editing" : ""}" data-entry-date="${item.date}" data-employee-id="${item.employeeId}">
+    <div class="calendar-item shift-${item.shift} ${item.fixed ? "is-fixed" : ""} ${item.absent ? "is-absence" : ""} ${isEditing ? "is-editing" : ""}" data-entry-date="${item.date}" data-employee-id="${item.employeeId}">
       <div>${item.label}</div>
       ${isEditing ? `
         <div class="edit-popover">
@@ -495,7 +500,7 @@ function downloadCsvTemplate(type) {
     employee: {
       filename: "제원데이터-양식.csv",
       rows: [
-        ["작성안내", "선호도는 한 칸에 A/B/C 순서를 붙여 적습니다. 예: ACB 또는 BCA", "", "", "", "", "", "", "", "", ""],
+        ["작성안내", "선호도는 한 칸에 A/B/C 순서를 붙여 적습니다. 예: ACB, BCA 등", "", "", "", "", "", "", "", "", ""],
         ["작성안내", "부재일정은 날짜를 &(앤드)로 구분합니다. 예: 2026-03-11&2026-03-18", "", "", "", "", "", "", "", "", ""],
         ["작성안내", "사전지정근무는 날짜와 근무를 2026-03-05(A)&2026-03-12(C) 형태로 적습니다.", "", "", "", "", "", "", "", "", ""],
         ["이름", "사번", "직책(팀장/일반)", "성숙도(1/2/3)", "선호도(예:ACB)", "근무가능시작(YYYY-MM-DD)", "근무가능종료(YYYY-MM-DD)", "부재일정(YYYY-MM-DD&YYYY-MM-DD)", "사전지정근무(YYYY-MM-DD(A)&YYYY-MM-DD(B))", "비고", ""],
@@ -506,10 +511,11 @@ function downloadCsvTemplate(type) {
     carryover: {
       filename: "전월근무데이터-양식.csv",
       rows: [
-        ["작성안내", "첫 행 첫 칸에는 기준 연월을 적습니다. 예: 2026년 2월", "", "", "", ""],
-        ["2026년 2월", "1일", "2일", "3일", "4일", "5일"],
-        ["홍길동", "A", "휴", "A", "B", "휴"],
-        ["김영희", "B", "C", "휴", "A", "A"]
+        ["2026년 2월", "1일", "2일", "3일", "4일", "5일", "6일", "7일"],
+        ["김서연T", "A", "휴", "A", "A", "휴", "A", "휴"],
+        ["이도윤", "B", "C", "휴", "A", "A", "B", "휴"],
+        ["박지후", "휴", "B", "B", "휴", "C", "A", "휴"],
+        ["정하은", "C", "휴", "A", "B", "휴", "C", "B"]
       ]
     }
   };
@@ -603,16 +609,16 @@ function formatEmployeeName(employee) {
   return tags.length ? `${employee.name}${tags.join("")}` : employee.name;
 }
 
-function getPreferenceCellClass(employee, shift) {
-  const rank = employee.preferences.indexOf(shift);
-  if (rank === -1) return "";
-  return `preference-cell shift-${shift} rank-${rank + 1}`;
-}
 
 function getFixedAssignmentsForDate(date) {
   return sampleFixedAssignments
     .filter((assignment) => assignment.date === date)
     .map((assignment) => ({ ...assignment }));
+}
+
+function isEmployeeAbsentOnDate(employeeId, date) {
+  const employee = findEmployee(employeeId);
+  return Boolean(employee?.absences?.includes(date));
 }
 
 function isoDate(year, month, day) {
