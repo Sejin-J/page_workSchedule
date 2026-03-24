@@ -4,7 +4,7 @@ const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 const CALENDAR_HEADER_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
 const FOCUS_WEEKDAYS = new Set([1, 3, 6]);
 
-const sampleEmployees = [
+const defaultEmployees = [
   { id: "E001", name: "김서연", role: "팀장", skill: 3, preferences: [], absences: ["2026-03-12"] },
   { id: "E002", name: "이도윤", role: "일반", skill: 3, preferences: ["A", "B", "C"], absences: ["2026-03-07", "2026-03-18"] },
   { id: "E003", name: "박지후", role: "일반", skill: 2, preferences: ["B", "A", "C"], absences: ["2026-03-10"] },
@@ -15,11 +15,16 @@ const sampleEmployees = [
   { id: "E008", name: "윤태호", role: "일반", skill: 1, preferences: ["A", "B", "C"], absences: ["2026-03-15"] }
 ];
 
-const sampleFixedAssignments = [
+const defaultFixedAssignments = [
   { date: "2026-03-04", employeeId: "E001", shift: "A" },
   { date: "2026-03-10", employeeId: "E003", shift: "B" },
   { date: "2026-03-18", employeeId: "E005", shift: "C" }
 ];
+
+const uploadedFileCache = {
+  employee: null,
+  carryover: null
+};
 
 const state = loadState();
 
@@ -36,6 +41,8 @@ const elements = {
   carryoverFileInput: document.querySelector("#carryoverFileInput"),
   downloadEmployeeFormatButton: document.querySelector("#downloadEmployeeFormatButton"),
   downloadCarryoverFormatButton: document.querySelector("#downloadCarryoverFormatButton"),
+  clearEmployeeFileButton: document.querySelector("#clearEmployeeFileButton"),
+  clearCarryoverFileButton: document.querySelector("#clearCarryoverFileButton"),
   employeeFileStatus: document.querySelector("#employeeFileStatus"),
   carryoverFileStatus: document.querySelector("#carryoverFileStatus"),
   validateButton: document.querySelector("#validateButton"),
@@ -80,11 +87,10 @@ function bindInputs() {
   attachFileStatus(elements.carryoverFileInput, "carryover");
   elements.downloadEmployeeFormatButton.addEventListener("click", () => downloadCsvTemplate("employee"));
   elements.downloadCarryoverFormatButton.addEventListener("click", () => downloadCsvTemplate("carryover"));
+  elements.clearEmployeeFileButton.addEventListener("click", () => clearUploadedFile("employee"));
+  elements.clearCarryoverFileButton.addEventListener("click", () => clearUploadedFile("carryover"));
 
-  elements.validateButton.addEventListener("click", () => {
-    state.validation = runValidation();
-    saveAndRender();
-  });
+  elements.validateButton.addEventListener("click", handleValidateUploads);
 
   elements.generateDraftButton.addEventListener("click", () => {
     state.schedule = buildDraftSchedule();
@@ -120,7 +126,15 @@ function updateRequirement(shift, value) {
 function attachFileStatus(input, key) {
   input.addEventListener("change", (event) => {
     const file = event.target.files?.[0];
+    uploadedFileCache[key] = file ?? null;
     state.uploads[key] = file ? { name: file.name, size: file.size } : null;
+    if (!file && key === "employee") {
+      state.importedEmployees = null;
+      state.importedFixedAssignments = null;
+    }
+    if (!file && key === "carryover") {
+      state.importedCarryover = null;
+    }
     saveAndRender();
   });
 }
@@ -130,6 +144,10 @@ function render() {
     state.schedule = buildDraftSchedule();
   }
   const schedule = state.schedule;
+  const employees = getActiveEmployees();
+  if (state.selectedView !== "summary" && !employees.some((employee) => employee.id === state.selectedView)) {
+    state.selectedView = "summary";
+  }
   elements.yearInput.value = state.year;
   elements.monthInput.value = state.month;
   elements.requiredAInput.value = state.requirements.A;
@@ -140,7 +158,7 @@ function render() {
   elements.carryoverFileStatus.textContent = describeUpload(state.uploads.carryover);
   elements.validationSummary.textContent = buildValidationText();
   elements.monthLabel.textContent = `${state.year}년 ${state.month}월`;
-  elements.employeeCountPill.textContent = `직원 ${sampleEmployees.length}명`;
+  elements.employeeCountPill.textContent = `직원 ${employees.length}명`;
 
   renderOverrideList();
   renderTabs();
@@ -190,9 +208,10 @@ function renderOverrideList() {
 }
 
 function renderTabs() {
+  const employees = getActiveEmployees();
   const tabs = [
     { id: "summary", label: "종합" },
-    ...sampleEmployees.map((employee) => ({ id: employee.id, label: formatEmployeeName(employee) }))
+    ...employees.map((employee) => ({ id: employee.id, label: formatEmployeeName(employee) }))
   ];
 
   elements.scheduleTabs.innerHTML = tabs.map((tab) => `
@@ -218,7 +237,25 @@ function renderCalendar(schedule) {
 
   for (let index = 0; index < firstWeekday; index += 1) {
     const columnIndex = index % 7;
-    cells.push(`<div class="calendar-cell is-empty ${isFocusColumn(columnIndex) ? "is-focus-day" : ""}"></div>`);
+    const carryoverDate = getCarryoverDateForLeadCell(index, firstWeekday);
+    if (carryoverDate) {
+      const source = state.importedCarryover ?? [];
+      const items = state.selectedView === "summary"
+        ? buildSummaryItems(source, carryoverDate)
+        : buildEmployeeItems(source, carryoverDate, state.selectedView);
+      cells.push(`
+        <article class="calendar-cell is-carryover ${isFocusColumn(columnIndex) ? "is-focus-day" : ""}">
+          <div class="calendar-date">
+            <strong>${new Date(carryoverDate).getDate()}일</strong>
+          </div>
+          <div class="calendar-list">
+            ${items.length ? items.map((item) => renderCalendarItem(item)).join("") : `<div class="calendar-item shift-OFF">미배정</div>`}
+          </div>
+        </article>
+      `);
+    } else {
+      cells.push(`<div class="calendar-cell is-empty ${isFocusColumn(columnIndex) ? "is-focus-day" : ""}"></div>`);
+    }
   }
 
   for (let day = 1; day <= days; day += 1) {
@@ -278,8 +315,14 @@ function renderPreferenceSummary() {
 }
 
 function buildSummaryItems(schedule, date) {
-  return sampleEmployees.map((employee) => {
-    const entry = schedule.find((item) => item.date === date && item.employeeId === employee.id);
+  return getActiveEmployees().map((employee) => {
+    const entry = schedule.find((item) => (
+      item.date === date && (
+        item.employeeId === employee.id ||
+        normalizeName(item.name) === normalizeName(formatEmployeeName(employee)) ||
+        normalizeName(item.name) === normalizeName(employee.name)
+      )
+    ));
     return {
       date,
       employeeId: employee.id,
@@ -292,7 +335,14 @@ function buildSummaryItems(schedule, date) {
 }
 
 function buildEmployeeItems(schedule, date, employeeId) {
-  const entry = schedule.find((item) => item.date === date && item.employeeId === employeeId);
+  const employee = findEmployee(employeeId);
+  const entry = schedule.find((item) => (
+    item.date === date && (
+      item.employeeId === employeeId ||
+      normalizeName(item.name) === normalizeName(formatEmployeeName(employee)) ||
+      normalizeName(item.name) === normalizeName(employee.name)
+    )
+  ));
   if (!entry) return [];
   return [{
     date,
@@ -337,7 +387,7 @@ function getRequiredTotals(onlyFocusWeekdays) {
 }
 
 function getEmployeeTotals(schedule, onlyFocusWeekdays) {
-  return sampleEmployees.map((employee) => {
+  return getActiveEmployees().map((employee) => {
     const totals = { A: 0, B: 0, C: 0 };
     schedule
       .filter((entry) => entry.employeeId === employee.id && entry.shift !== "OFF")
@@ -351,7 +401,7 @@ function getEmployeeTotals(schedule, onlyFocusWeekdays) {
 }
 
 function getEmployeeAbsenceTotals(onlyFocusWeekdays) {
-  return sampleEmployees.map((employee) => {
+  return getActiveEmployees().map((employee) => {
     const count = (employee.absences ?? []).filter((date) => {
       if (!onlyFocusWeekdays) return true;
       return FOCUS_WEEKDAYS.has(new Date(date).getDay());
@@ -421,6 +471,9 @@ function renderCalendarItem(item) {
 
 function buildValidationText() {
   const validation = state.validation ?? { errors: [], warnings: [] };
+  if (validation.summary) {
+    return validation.summary;
+  }
   if (!validation.errors.length && !validation.warnings.length) {
     return "샘플 데이터 기준으로 검증 가능한 기본 형식입니다.";
   }
@@ -428,6 +481,55 @@ function buildValidationText() {
     return `오류 ${validation.errors.length}건 / 경고 ${validation.warnings.length}건`;
   }
   return `경고 ${validation.warnings.length}건`;
+}
+
+async function handleValidateUploads() {
+  const employeeFile = elements.employeeFileInput.files?.[0] ?? uploadedFileCache.employee;
+  const carryoverFile = elements.carryoverFileInput.files?.[0] ?? uploadedFileCache.carryover;
+
+  if (!employeeFile || !carryoverFile) {
+    state.validation = {
+      errors: ["제원 데이터와 전월 근무 데이터 파일을 모두 업로드해야 합니다."],
+      warnings: [],
+      summary: "오류 1건 / 파일 2개를 모두 업로드해주세요."
+    };
+    saveAndRender();
+    return;
+  }
+
+  elements.validationSummary.textContent = "검증 중...";
+
+  try {
+    const [employeeText, carryoverText] = await Promise.all([employeeFile.text(), carryoverFile.text()]);
+    const employeeValidation = validateEmployeeCsv(employeeText);
+    const carryoverValidation = validateCarryoverCsv(carryoverText);
+
+    state.validation = {
+      errors: [...employeeValidation.errors, ...carryoverValidation.errors],
+      warnings: [...employeeValidation.warnings, ...carryoverValidation.warnings]
+    };
+
+    if (!state.validation.errors.length) {
+      state.importedEmployees = employeeValidation.employees;
+      state.importedFixedAssignments = employeeValidation.fixedAssignments;
+      state.importedCarryover = carryoverValidation.schedule;
+      state.schedule = [];
+    }
+
+    const employeeCount = employeeValidation.employees.length;
+    const carryoverRows = carryoverValidation.schedule.length;
+    state.validation.summary = state.validation.errors.length
+      ? `오류 ${state.validation.errors.length}건 / 경고 ${state.validation.warnings.length}건`
+      : `검증 완료: 제원 ${employeeCount}명, 전월 데이터 ${carryoverRows}행`;
+  } catch (error) {
+    state.validation = {
+      errors: ["CSV 읽기 중 오류가 발생했습니다."],
+      warnings: [],
+      summary: `검증 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+    };
+  }
+
+  saveAndRender();
 }
 
 function runValidation() {
@@ -443,14 +545,183 @@ function runValidation() {
   if (state.overrides.some((override) => !override.date)) {
     errors.push("특정일 최소 필요 인원에 날짜가 비어 있습니다.");
   }
-  if (state.requirements.A + state.requirements.B + state.requirements.C > sampleEmployees.length) {
+  if (state.requirements.A + state.requirements.B + state.requirements.C > getActiveEmployees().length) {
     warnings.push("기본 최소 필요 인원이 샘플 직원 수보다 많습니다.");
   }
 
   return { errors, warnings };
 }
 
+function clearUploadedFile(key) {
+  if (key === "employee") {
+    elements.employeeFileInput.value = "";
+    uploadedFileCache.employee = null;
+    state.uploads.employee = null;
+    state.importedEmployees = null;
+    state.importedFixedAssignments = null;
+  }
+  if (key === "carryover") {
+    elements.carryoverFileInput.value = "";
+    uploadedFileCache.carryover = null;
+    state.uploads.carryover = null;
+    state.importedCarryover = null;
+  }
+  state.validation = { errors: [], warnings: [], summary: "업로드 파일이 제거되었습니다." };
+  state.schedule = [];
+  saveAndRender();
+}
+
+function validateEmployeeCsv(text) {
+  const rows = parseCsv(text).filter((row) => row.some((cell) => cell.trim()));
+  const headerIndex = rows.findIndex((row) => row[0]?.trim() === "이름");
+  const errors = [];
+  const warnings = [];
+
+  if (headerIndex === -1) {
+    return { employees: [], fixedAssignments: [], errors: ["제원 데이터 헤더 행을 찾지 못했습니다."], warnings };
+  }
+
+  const dataRows = rows.slice(headerIndex + 1);
+  const employees = [];
+  const fixedAssignments = [];
+  const ids = new Set();
+
+  dataRows.forEach((row, index) => {
+    if (!row[0]?.trim()) return;
+    const line = index + headerIndex + 2;
+    const [name, id, role, skillRaw, preferenceRaw, start, end, absencesRaw, fixedRaw] = row;
+    const skill = Number(skillRaw);
+
+    if (!name || !id) errors.push(`제원 데이터 ${line}행: 이름과 사번은 필수입니다.`);
+    if (!["팀장", "일반"].includes(role)) errors.push(`제원 데이터 ${line}행: 직책은 팀장/일반만 가능합니다.`);
+    if (![1, 2, 3].includes(skill)) errors.push(`제원 데이터 ${line}행: 성숙도는 1/2/3만 가능합니다.`);
+    if (ids.has(id)) errors.push(`제원 데이터 ${line}행: 사번 ${id}가 중복됩니다.`);
+    ids.add(id);
+    if (!isValidDateString(start) || !isValidDateString(end)) errors.push(`제원 데이터 ${line}행: 근무 가능 시작/종료일 형식이 올바르지 않습니다.`);
+
+    const preferences = role === "팀장" || !preferenceRaw ? [] : preferenceRaw.trim().split("");
+    if (role !== "팀장") {
+      if (preferences.length !== 3 || new Set(preferences).size !== 3 || preferences.some((value) => !SHIFTS.includes(value))) {
+        errors.push(`제원 데이터 ${line}행: 선호도는 A/B/C를 한 번씩 포함한 3글자여야 합니다.`);
+      }
+    }
+
+    const absences = parseAmpersandDates(absencesRaw, line, "부재일정", errors);
+    const fixed = parseFixedAssignments(fixedRaw, id, line, errors);
+    fixedAssignments.push(...fixed);
+
+    employees.push({
+      id,
+      name,
+      role,
+      skill,
+      preferences,
+      absences
+    });
+  });
+
+  if (!employees.length) warnings.push("제원 데이터에 직원 행이 없습니다.");
+  return { employees, fixedAssignments, errors, warnings };
+}
+
+function validateCarryoverCsv(text) {
+  const rows = parseCsv(text).filter((row) => row.some((cell) => cell.trim()));
+  const errors = [];
+  const warnings = [];
+
+  if (!rows.length) {
+    return { schedule: [], errors: ["전월 근무 데이터가 비어 있습니다."], warnings };
+  }
+
+  const header = rows[0];
+  const days = header.slice(1).filter(Boolean);
+  const yearMonthMatch = header[0]?.match(/(\d{4})년\s*(\d{1,2})월/);
+  if (!yearMonthMatch) errors.push("전월 근무 데이터 첫 칸에는 기준 연월이 필요합니다. 예: 2026년 2월");
+  if (!days.length) errors.push("전월 근무 데이터에는 일자 헤더가 필요합니다.");
+  const carryoverYear = yearMonthMatch ? Number(yearMonthMatch[1]) : state.year;
+  const carryoverMonth = yearMonthMatch ? Number(yearMonthMatch[2]) : state.month;
+
+  const schedule = [];
+  rows.slice(1).forEach((row, rowIndex) => {
+    const name = row[0]?.trim();
+    if (!name) return;
+    row.slice(1).forEach((shift, dayIndex) => {
+      const value = shift?.trim();
+      if (!["A", "B", "C", "휴"].includes(value)) {
+        errors.push(`전월 근무 데이터 ${rowIndex + 2}행 ${dayIndex + 2}열: 근무는 A/B/C/휴만 가능합니다.`);
+      } else {
+        schedule.push({
+          date: isoDate(carryoverYear, carryoverMonth, dayIndex + 1),
+          name,
+          shift: value === "휴" ? "OFF" : value,
+          fixed: false
+        });
+      }
+    });
+  });
+
+  return { schedule, errors, warnings };
+}
+
+function parseCsv(text) {
+  const normalized = text.replace(/^\uFEFF/, "").replace(/\r/g, "");
+  const lines = normalized.split("\n");
+  return lines.map(parseCsvLine);
+}
+
+function parseCsvLine(line) {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (inQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  result.push(current);
+  return result;
+}
+
+function parseAmpersandDates(rawValue, line, label, errors) {
+  if (!rawValue?.trim()) return [];
+  return rawValue.split("&").map((value) => value.trim()).filter(Boolean).filter((value) => {
+    const valid = isValidDateString(value);
+    if (!valid) errors.push(`제원 데이터 ${line}행: ${label} 날짜 형식이 올바르지 않습니다.`);
+    return valid;
+  });
+}
+
+function parseFixedAssignments(rawValue, employeeId, line, errors) {
+  if (!rawValue?.trim()) return [];
+  return rawValue.split("&").map((value) => value.trim()).filter(Boolean).flatMap((value) => {
+    const matched = value.match(/^(\d{4}-\d{2}-\d{2})\(([ABC])\)$/);
+    if (!matched) {
+      errors.push(`제원 데이터 ${line}행: 사전지정근무 형식은 YYYY-MM-DD(A) 이어야 합니다.`);
+      return [];
+    }
+    return [{ date: matched[1], employeeId, shift: matched[2] }];
+  });
+}
+
+function isValidDateString(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test((value ?? "").trim());
+}
+
 function buildDraftSchedule() {
+  const employees = getActiveEmployees();
   const days = getDaysInMonth(state.year, state.month);
   const schedule = [];
 
@@ -467,8 +738,8 @@ function buildDraftSchedule() {
 
     SHIFTS.forEach((shift) => {
       let remaining = Math.max(0, required[shift] - fixedAssignments.filter((item) => item.shift === shift).length);
-      for (let index = 0; index < sampleEmployees.length && remaining > 0; index += 1) {
-        const employee = sampleEmployees[(index + day + shift.charCodeAt(0)) % sampleEmployees.length];
+      for (let index = 0; index < employees.length && remaining > 0; index += 1) {
+        const employee = employees[(index + day + shift.charCodeAt(0)) % employees.length];
         if (assignedIds.has(employee.id)) continue;
         if (employee.role === "팀장" && shift !== "A") continue;
         assignedIds.add(employee.id);
@@ -477,7 +748,7 @@ function buildDraftSchedule() {
       }
     });
 
-    sampleEmployees.forEach((employee) => {
+    employees.forEach((employee) => {
       if (!assignedIds.has(employee.id)) {
         schedule.push({ date, employeeId: employee.id, shift: "OFF", fixed: false });
       }
@@ -533,8 +804,9 @@ function downloadCsvTemplate(type) {
 
 function downloadCurrentSchedule() {
   const days = getDaysInMonth(state.year, state.month);
+  const employees = getActiveEmployees();
   const header = [`${state.year}년 ${state.month}월`, ...Array.from({ length: days }, (_, index) => `${index + 1}일`)];
-  const rows = sampleEmployees.map((employee) => {
+  const rows = employees.map((employee) => {
     const shifts = Array.from({ length: days }, (_, index) => {
       const day = index + 1;
       const date = isoDate(state.year, state.month, day);
@@ -583,14 +855,21 @@ function buildDefaultState() {
     overrides: [{ date: isoDate(year, month, Math.min(15, getDaysInMonth(year, month))), A: 3, B: 2, C: 1 }],
     uploads: { employee: null, carryover: null },
     validation: { errors: [], warnings: [] },
+    importedEmployees: null,
+    importedFixedAssignments: null,
+    importedCarryover: null,
     selectedView: "summary",
     editing: null,
     schedule: []
   };
 }
 
+function getActiveEmployees() {
+  return state.importedEmployees?.length ? state.importedEmployees : defaultEmployees;
+}
+
 function findEmployee(employeeId) {
-  return sampleEmployees.find((employee) => employee.id === employeeId);
+  return getActiveEmployees().find((employee) => employee.id === employeeId);
 }
 
 function describeUpload(file) {
@@ -611,7 +890,8 @@ function formatEmployeeName(employee) {
 
 
 function getFixedAssignmentsForDate(date) {
-  return sampleFixedAssignments
+  const source = state.importedFixedAssignments?.length ? state.importedFixedAssignments : defaultFixedAssignments;
+  return source
     .filter((assignment) => assignment.date === date)
     .map((assignment) => ({ ...assignment }));
 }
@@ -619,6 +899,18 @@ function getFixedAssignmentsForDate(date) {
 function isEmployeeAbsentOnDate(employeeId, date) {
   const employee = findEmployee(employeeId);
   return Boolean(employee?.absences?.includes(date));
+}
+
+function getCarryoverDateForLeadCell(index, firstWeekday) {
+  if (!state.importedCarryover?.length) return null;
+  const firstDate = new Date(state.year, state.month - 1, 1);
+  const carryoverDate = new Date(firstDate);
+  carryoverDate.setDate(firstDate.getDate() - (firstWeekday - index));
+  return isoDate(carryoverDate.getFullYear(), carryoverDate.getMonth() + 1, carryoverDate.getDate());
+}
+
+function normalizeName(value) {
+  return (value ?? "").replace(/\s+/g, "").trim();
 }
 
 function isoDate(year, month, day) {
