@@ -16,25 +16,22 @@
       <div>
         <p class="eyebrow">GitHub Pages Static App Draft</p>
         <h1>월간 근무표 생성기</h1>
-        <p class="hero-copy">
-          명세서 기반 입력 구조, 검증 패널, 종합 근무표, 수동 편집 자리까지 포함한 HTML/CSS/JavaScript 초안입니다.
-          최적화 알고리즘은 제외하고 화면과 상태 흐름만 연결했습니다.
-        </p>
+        <p class="hero-copy">좌측에는 입력과 검증, 우측에는 달력형 근무표와 통계 요약을 배치한 화면 초안입니다.</p>
       </div>
       <div class="hero-actions">
         <button id="generateDraftButton" class="button button-primary">초안 생성</button>
-        <button id="validateButton" class="button button-secondary">사전 검증</button>
         <button id="resetButton" class="button button-ghost">초기화</button>
       </div>
     </header>
 
-    <main class="layout">
-      <aside class="sidebar">
+    <main class="workspace">
+      <aside class="left-panel">
         <section class="panel">
           <div class="panel-heading">
-            <h2>기준 월 설정</h2>
-            <span class="badge">2.1</span>
+            <h2>기준 설정</h2>
+            <span class="badge">25%</span>
           </div>
+
           <div class="field-grid field-grid-2">
             <label class="field">
               <span>연도</span>
@@ -45,6 +42,22 @@
               <input id="monthInput" type="number" min="1" max="12">
             </label>
           </div>
+
+          <div class="mini-grid">
+            <label class="field">
+              <span>A 최소 인원</span>
+              <input id="requiredAInput" type="number" min="0" max="20">
+            </label>
+            <label class="field">
+              <span>B 최소 인원</span>
+              <input id="requiredBInput" type="number" min="0" max="20">
+            </label>
+            <label class="field">
+              <span>C 최소 인원</span>
+              <input id="requiredCInput" type="number" min="0" max="20">
+            </label>
+          </div>
+
           <label class="field">
             <span>최대 연속 근무 제한</span>
             <input id="maxConsecutiveInput" type="number" min="1" max="14">
@@ -53,129 +66,84 @@
 
         <section class="panel">
           <div class="panel-heading">
-            <h2>휴일 설정</h2>
-            <span class="badge">Calendar</span>
-          </div>
-          <p class="panel-copy">주말은 자동 휴일 처리되고, 아래 달력에서 수동으로 휴일을 토글할 수 있습니다.</p>
-          <div id="holidayCalendar" class="holiday-calendar"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>기본 필요 인원</h2>
-            <span class="badge">A/B/C</span>
-          </div>
-          <div id="requirementTable" class="table-wrap"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>특정일 예외 인원</h2>
+            <h2>특정일 최소 필요 인원</h2>
             <span class="badge">Override</span>
           </div>
-          <div class="override-toolbar">
-            <button id="addOverrideButton" class="button button-secondary button-small">예외 추가</button>
-          </div>
+          <button id="addOverrideButton" class="button button-secondary button-small">특정일 추가</button>
           <div id="overrideList" class="stack-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>제원 데이터 입력</h2>
+            <span class="badge">CSV</span>
+          </div>
+
+          <label class="upload-card">
+            <span>제원 데이터 업로드</span>
+            <small>직원 정보, 직책, 성숙도, 선호도, 근무 가능 기간, 부재 일정, 사전 지정 근무 포함</small>
+            <input id="employeeFileInput" type="file" accept=".csv">
+            <strong id="employeeFileStatus">아직 업로드하지 않음</strong>
+          </label>
+
+          <label class="upload-card">
+            <span>전월 근무 데이터 업로드</span>
+            <small>전월 출력 파일이자 이번 달 근무표 생성의 기준 데이터</small>
+            <input id="carryoverFileInput" type="file" accept=".csv">
+            <strong id="carryoverFileStatus">아직 업로드하지 않음</strong>
+          </label>
+
+          <div class="action-stack">
+            <button id="validateButton" class="button button-secondary">데이터 업로드 및 검증</button>
+            <p id="validationSummary" class="status-text">아직 검증 전입니다.</p>
+          </div>
         </section>
       </aside>
 
-      <div class="content">
+      <section class="right-panel">
         <section class="panel">
           <div class="panel-heading">
-            <h2>CSV 업로드</h2>
-            <span class="badge">2.2</span>
+            <h2>근무표</h2>
+            <span class="badge">75%</span>
           </div>
-          <div class="upload-grid">
-            <label class="upload-card">
-              <span>직원 제원 / 이력 CSV</span>
-              <input id="employeeFileInput" type="file" accept=".csv">
-              <small id="employeeFileStatus">아직 업로드하지 않음</small>
-            </label>
-            <label class="upload-card">
-              <span>사전 지정 근무 CSV</span>
-              <input id="fixedFileInput" type="file" accept=".csv">
-              <small id="fixedFileStatus">아직 업로드하지 않음</small>
-            </label>
-            <label class="upload-card">
-              <span>전월 이월 데이터 CSV</span>
-              <input id="carryoverFileInput" type="file" accept=".csv">
-              <small id="carryoverFileStatus">아직 업로드하지 않음</small>
-            </label>
-          </div>
-          <div class="helper-card">
-            <strong>초안 상태</strong>
-            <p>현재는 업로드 파일을 저장하고 상태만 표시합니다. 이후 단계에서 CSV 파서와 제약 검증기를 이 위치에 연결하면 됩니다.</p>
-          </div>
-        </section>
 
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>사전 검증 / 제약 요약</h2>
-            <span class="badge">2.3 / 4</span>
-          </div>
-          <div class="status-grid">
-            <article class="status-card">
-              <h3>검증 결과</h3>
-              <p id="validationSummary">아직 검증 전입니다.</p>
-            </article>
-            <article class="status-card">
-              <h3>필수 제약</h3>
-              <ul id="constraintList" class="inline-list"></ul>
-            </article>
-            <article class="status-card">
-              <h3>작업 상태</h3>
-              <p id="storageStatus">브라우저 로컬 저장소에 자동 저장됩니다.</p>
-            </article>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>생성 결과</h2>
-            <span class="badge">3 / 6</span>
-          </div>
-          <div class="toolbar">
+          <div class="schedule-toolbar">
+            <div id="scheduleTabs" class="tab-row"></div>
             <div class="summary-pills">
               <span id="monthLabel" class="pill">-</span>
               <span id="employeeCountPill" class="pill">직원 0명</span>
-              <span id="holidayCountPill" class="pill">휴일 0일</span>
-            </div>
-            <div class="toolbar-actions">
-              <button id="undoButton" class="button button-ghost button-small" disabled>◀ 뒤로 돌리기</button>
-              <button id="redoButton" class="button button-ghost button-small" disabled>▶ 앞으로 돌리기</button>
-              <button id="downloadButton" class="button button-secondary button-small">CSV 다운로드</button>
-              <button id="printButton" class="button button-primary button-small">인쇄 뷰</button>
             </div>
           </div>
 
-          <div class="result-grid">
-            <article class="result-card">
-              <h3>종합 근무표</h3>
-              <div id="scheduleMatrix" class="table-wrap"></div>
-            </article>
-            <article class="result-card">
-              <h3>개인별 달력 미리보기</h3>
-              <div id="personalPreview" class="personal-preview"></div>
-            </article>
+          <div id="calendarView" class="calendar-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>통계 요약</h2>
+            <span class="badge">Summary</span>
           </div>
 
-          <div class="result-grid">
+          <div class="stats-layout">
             <article class="result-card">
-              <h3>통계 요약</h3>
-              <div id="statsPanel" class="stats-grid"></div>
+              <h3>월 전체 필요 인원</h3>
+              <div id="requiredMonthlyStats" class="table-wrap"></div>
             </article>
             <article class="result-card">
-              <h3>수동 편집 / 경고</h3>
-              <div class="helper-card helper-card-compact">
-                <strong>향후 연결 포인트</strong>
-                <p>드래그 앤 드롭 교환, 실시간 제약 위배 붉은색 경고, 탐색 실패 원인 팝업을 이 영역에 연결하도록 구성했습니다.</p>
-              </div>
-              <div id="warningList" class="stack-list"></div>
+              <h3>인원별 월 전체 투입 수</h3>
+              <div id="employeeMonthlyStats" class="table-wrap"></div>
+            </article>
+            <article class="result-card">
+              <h3>월·수·토 필요 인원</h3>
+              <div id="requiredMwsStats" class="table-wrap"></div>
+            </article>
+            <article class="result-card">
+              <h3>인원별 월·수·토 투입 수</h3>
+              <div id="employeeMwsStats" class="table-wrap"></div>
             </article>
           </div>
         </section>
-      </div>
+      </section>
     </main>
   </div>
 
