@@ -20,6 +20,7 @@
       </div>
       <div class="hero-actions">
         <button id="generateDraftButton" class="button button-primary">초안 생성</button>
+        <button id="saveResultButton" class="button button-secondary">결과 저장</button>
         <button id="resetButton" class="button button-ghost">초기화</button>
       </div>
     </header>
@@ -109,23 +110,6 @@
       <section class="right-panel">
         <section class="panel">
           <div class="panel-heading">
-            <h2>근무표</h2>
-            <span class="badge">75%</span>
-          </div>
-
-          <div class="schedule-toolbar">
-            <div id="scheduleTabs" class="tab-row"></div>
-            <div class="summary-pills">
-              <span id="monthLabel" class="pill">-</span>
-              <span id="employeeCountPill" class="pill">직원 0명</span>
-            </div>
-          </div>
-
-          <div id="calendarView" class="calendar-grid"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
             <h2>통계 요약</h2>
             <span class="badge">Summary</span>
           </div>
@@ -140,6 +124,23 @@
               <div id="combinedMwsStats" class="table-wrap"></div>
             </article>
           </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>근무표</h2>
+            <span class="badge">75%</span>
+          </div>
+
+          <div class="schedule-toolbar">
+            <div id="scheduleTabs" class="tab-row"></div>
+            <div class="summary-pills">
+              <span id="monthLabel" class="pill">-</span>
+              <span id="employeeCountPill" class="pill">직원 0명</span>
+            </div>
+          </div>
+
+          <div id="calendarView" class="calendar-grid"></div>
         </section>
       </section>
     </main>

@@ -10,7 +10,9 @@ const sampleEmployees = [
   { id: "E003", name: "박지후", role: "일반", skill: 2 },
   { id: "E004", name: "정하은", role: "일반", skill: 2 },
   { id: "E005", name: "최유진", role: "일반", skill: 1 },
-  { id: "E006", name: "오민재", role: "일반", skill: 3 }
+  { id: "E006", name: "오민재", role: "일반", skill: 3 },
+  { id: "E007", name: "한지민", role: "일반", skill: 2 },
+  { id: "E008", name: "윤태호", role: "일반", skill: 1 }
 ];
 
 const state = loadState();
@@ -33,6 +35,7 @@ const elements = {
   validateButton: document.querySelector("#validateButton"),
   validationSummary: document.querySelector("#validationSummary"),
   generateDraftButton: document.querySelector("#generateDraftButton"),
+  saveResultButton: document.querySelector("#saveResultButton"),
   resetButton: document.querySelector("#resetButton"),
   scheduleTabs: document.querySelector("#scheduleTabs"),
   monthLabel: document.querySelector("#monthLabel"),
@@ -82,6 +85,8 @@ function bindInputs() {
     state.validation = runValidation();
     saveAndRender();
   });
+
+  elements.saveResultButton.addEventListener("click", downloadCurrentSchedule);
 
   elements.resetButton.addEventListener("click", () => {
     localStorage.removeItem(STORAGE_KEY);
@@ -200,10 +205,13 @@ function renderTabs() {
 function renderCalendar(schedule) {
   const days = getDaysInMonth(state.year, state.month);
   const firstWeekday = toMondayFirstIndex(new Date(state.year, state.month - 1, 1).getDay());
-  const cells = CALENDAR_HEADER_LABELS.map((label) => `<div class="calendar-weekday">${label}</div>`);
+  const cells = CALENDAR_HEADER_LABELS.map((label, index) => `
+    <div class="calendar-weekday ${isFocusColumn(index) ? "is-focus-day" : ""}">${label}</div>
+  `);
 
   for (let index = 0; index < firstWeekday; index += 1) {
-    cells.push(`<div class="calendar-cell is-empty"></div>`);
+    const columnIndex = index % 7;
+    cells.push(`<div class="calendar-cell is-empty ${isFocusColumn(columnIndex) ? "is-focus-day" : ""}"></div>`);
   }
 
   for (let day = 1; day <= days; day += 1) {
@@ -211,9 +219,10 @@ function renderCalendar(schedule) {
     const items = state.selectedView === "summary"
       ? buildSummaryItems(schedule, date)
       : buildEmployeeItems(schedule, date, state.selectedView);
+    const columnIndex = (firstWeekday + day - 1) % 7;
 
     cells.push(`
-      <article class="calendar-cell">
+      <article class="calendar-cell ${isFocusColumn(columnIndex) ? "is-focus-day" : ""}">
         <div class="calendar-date">
           <strong>${day}일</strong>
         </div>
@@ -449,6 +458,22 @@ function downloadCsvTemplate(type) {
   URL.revokeObjectURL(url);
 }
 
+function downloadCurrentSchedule() {
+  const header = ["date", "employee_id", "employee_name", "shift"];
+  const rows = state.schedule.map((entry) => {
+    const employee = findEmployee(entry.employeeId);
+    return [entry.date, entry.employeeId, formatEmployeeName(employee), formatShift(entry.shift)];
+  });
+  const csv = "\uFEFF" + [header, ...rows].map((row) => row.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `work-schedule-result-${state.year}-${String(state.month).padStart(2, "0")}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -519,4 +544,8 @@ function clamp(value, min, max) {
 
 function toMondayFirstIndex(dayIndex) {
   return dayIndex === 0 ? 6 : dayIndex - 1;
+}
+
+function isFocusColumn(columnIndex) {
+  return columnIndex === 0 || columnIndex === 2 || columnIndex === 5;
 }
